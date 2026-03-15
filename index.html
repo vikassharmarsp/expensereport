@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#4f46e5">
     <title>ExpenseReport</title>
     <meta name="description" content="A simple yet powerful expense tracker application.">
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
     <!-- Icons -->
     <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
@@ -31,6 +32,7 @@
                 <button id="add-profile-btn" class="icon-btn" title="Add Profile"><i class="ri-user-add-line"></i></button>
             </div>
             <button id="theme-toggle" class="icon-btn theme-btn" title="Toggle Theme"><i class="ri-moon-line"></i></button>
+            <button id="print-report-btn" class="icon-btn" title="Print Monthly Report"><i class="ri-printer-line"></i></button>
             <button id="share-btn" class="icon-btn" title="Share Data"><i class="ri-share-line"></i></button>
         </div>
     </header>
@@ -72,7 +74,11 @@
                     <h3 id="stat-variable">₹0.00</h3>
                 </div>
                 <div class="stat-card">
-                    <p class="stat-title">Monthly Income</p>
+                    <p class="stat-title">Actual Income (Month)</p>
+                    <h3 id="stat-actual-income">₹0.00</h3>
+                </div>
+                <div class="stat-card">
+                    <p class="stat-title">Monthly Budget</p>
                     <h3 id="stat-monthly-income">₹0.00</h3>
                 </div>
                 <div class="stat-card">
@@ -94,6 +100,12 @@
                 <h3>Monthly Trend (Year)</h3>
                 <div class="canvas-container">
                     <canvas id="lineChart"></canvas>
+                </div>
+            </div>
+            <div class="card chart-wrapper">
+                <h3>Investments vs Expenses</h3>
+                <div class="canvas-container">
+                    <canvas id="investChart"></canvas>
                 </div>
             </div>
         </section>
@@ -145,8 +157,17 @@
                     <input type="hidden" id="edit-id">
                     
                     <div class="form-group">
-                        <label for="exp-name">Expense Name <span class="req">*</span></label>
-                        <input type="text" id="exp-name" placeholder="e.g. Lunch with team" required>
+                        <label>Transaction Type</label>
+                        <div class="display-toggles full-width" style="margin-bottom: 0;">
+                            <button type="button" id="type-expense" class="active" style="flex:1;">Expense</button>
+                            <button type="button" id="type-income" style="flex:1;">Income</button>
+                        </div>
+                        <input type="hidden" id="entry-type" value="Expense">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="exp-name">Name <span class="req">*</span></label>
+                        <input type="text" id="exp-name" placeholder="e.g. Salary or Lunch" required>
                     </div>
                     
                     <div class="form-row">
@@ -353,9 +374,125 @@
         </div>
     </div>
 
+    <!-- Print Options Modal -->
+    <div id="modal-print" class="modal hidden">
+        <div class="modal-header">
+            <h3><i class="ri-printer-line"></i> Print Report Options</h3>
+            <button class="icon-btn close-modal"><i class="ri-close-line"></i></button>
+        </div>
+        <div class="modal-body">
+            <p class="hint" style="margin-bottom:1rem;">Choose the date range for your printable report. Leave both blank to print the <strong>current month</strong>.</p>
+            <div class="form-row">
+                <div class="form-group half">
+                    <label for="print-date-start">From Date</label>
+                    <input type="date" id="print-date-start">
+                </div>
+                <div class="form-group half">
+                    <label for="print-date-end">To Date</label>
+                    <input type="date" id="print-date-end">
+                </div>
+            </div>
+            <div class="print-quick-ranges">
+                <p style="font-size:0.85rem;font-weight:500;margin-bottom:0.5rem;color:var(--text-secondary);">Quick Select:</p>
+                <div class="quick-range-btns">
+                    <button class="btn-sm outline" data-range="this-month">This Month</button>
+                    <button class="btn-sm outline" data-range="last-month">Last Month</button>
+                    <button class="btn-sm outline" data-range="last-3-months">Last 3 Months</button>
+                    <button class="btn-sm outline" data-range="this-year">This Year</button>
+                    <button class="btn-sm outline" data-range="all">All Time</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn close-modal-btn">Cancel</button>
+            <button id="confirm-print-btn" class="btn primary"><i class="ri-printer-line"></i> Print Now</button>
+        </div>
+    </div>
+
+    <!-- Print Report Section (hidden on screen, visible on print) -->
+    <div id="print-report" style="display:none;">
+        <div class="print-header">
+            <h1>&#128179; ExpenseReport</h1>
+            <p id="print-profile-label"></p>
+        </div>
+        <h2 id="print-month-title"></h2>
+
+        <div class="print-summary-grid">
+            <div class="print-summary-box">
+                <span class="ps-label">Monthly Income</span>
+                <span class="ps-val" id="pr-income"></span>
+            </div>
+            <div class="print-summary-box">
+                <span class="ps-label">Total Expenses</span>
+                <span class="ps-val" id="pr-expenses"></span>
+            </div>
+            <div class="print-summary-box">
+                <span class="ps-label">Exp / Inc Ratio</span>
+                <span class="ps-val" id="pr-ratio"></span>
+            </div>
+            <div class="print-summary-box">
+                <span class="ps-label">Fixed Expenses</span>
+                <span class="ps-val" id="pr-fixed"></span>
+            </div>
+            <div class="print-summary-box">
+                <span class="ps-label">Variable Expenses</span>
+                <span class="ps-val" id="pr-variable"></span>
+            </div>
+            <div class="print-summary-box">
+                <span class="ps-label">Avg Daily Spend</span>
+                <span class="ps-val" id="pr-avg-daily"></span>
+            </div>
+        </div>
+
+        <h3>Category Breakdown</h3>
+        <table class="print-table" id="pr-category-table">
+            <thead>
+                <tr>
+                    <th>Category</th>
+                    <th>Amount</th>
+                    <th>% of Total</th>
+                    <th>Budget</th>
+                    <th>Remaining</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+
+        <h3>All Expenses This Month</h3>
+        <table class="print-table" id="pr-expenses-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Name</th>
+                    <th>Category</th>
+                    <th>Subcategory</th>
+                    <th>Type</th>
+                    <th>Amount</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+
+        <div class="print-footer">
+            <p>Generated on <span id="pr-gen-date"></span> &mdash; ExpenseReport App</p>
+        </div>
+    </div>
+
+    <!-- Cloud Sync Overlay -->
+    <div id="cloud-loader" class="overlay hidden">
+        <div class="modal">
+            <div class="modal-body text-center">
+                <i class="ri-loader-4-line ri-spin" style="font-size: 2rem; color: var(--primary);"></i>
+                <p style="margin-top: 1rem;">Syncing with Cloud...</p>
+            </div>
+        </div>
+    </div>
+
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- App Logic -->
-    <script src="script.js"></script>
+    
+    <!-- App Logic as Module -->
+    <script type="module" src="script.js"></script>
 </body>
 </html>

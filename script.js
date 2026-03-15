@@ -9,20 +9,38 @@ const CATEGORIES = {
   Rent: [],
   Cosmetics: [],
   Health: [],
-  Investment: [
-    "Stock",
-    "Mutual Fund",
-    "PPF",
-    "EPF",
-    "FD",
-    "RD",
-    "Gold",
-    "RealEstate",
-  ],
+  Investment: ["Stock", "Mutual Fund", "PPF", "EPF", "FD", "RD", "Gold", "RealEstate"],
   "Credit Card Bills": ["HDFC", "ICICI", "SBI", "Other"],
   Clothing: ["Vikas", "Shivani", "Parents", "Siblings"],
   Other: [],
 };
+
+const INCOME_CATEGORIES = {
+  Salary: ["Full-time", "Freelance", "Consulting"],
+  Business: ["Profit", "Services", "Sales"],
+  Investment: ["Interest", "Dividends", "Rental", "Stock Gains"],
+  Gift: ["Family", "Friends"],
+  Other: []
+};
+
+// Firebase Imports
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+
+// Firebase Configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyBHBN5V3bOSRef4GagXPKwkE8j6eZT2ApE",
+  authDomain: "expensereport-451af.firebaseapp.com",
+  projectId: "expensereport-451af",
+  storageBucket: "expensereport-451af.firebasestorage.app",
+  messagingSenderId: "947261778901",
+  appId: "1:947261778901:web:87d02a0b9439cf6eba6b5c",
+  measurementId: "G-41P4M7CTC2"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 // Application State
 let STATE = {
@@ -37,6 +55,7 @@ let STATE = {
 // Chart instances
 let pieChartInstance = null;
 let lineChartInstance = null;
+let investChartInstance = null;
 
 const STORAGE_PREFIX = "ExpenseReport_";
 
@@ -47,6 +66,7 @@ const el = {
   profileSelect: document.getElementById("profile-select"),
   addProfileBtn: document.getElementById("add-profile-btn"),
   shareBtn: document.getElementById("share-btn"),
+  printReportBtn: document.getElementById("print-report-btn"),
 
   // Form
   form: document.getElementById("expense-form"),
@@ -91,8 +111,13 @@ const el = {
   statLowest: document.getElementById("stat-lowest"),
   statFixed: document.getElementById("stat-fixed"),
   statVariable: document.getElementById("stat-variable"),
+  statActualIncome: document.getElementById("stat-actual-income"),
   statMonthlyIncome: document.getElementById("stat-monthly-income"),
   statIncExpRatio: document.getElementById("stat-inc-exp-ratio"),
+
+  typeExpenseBtn: document.getElementById("type-expense"),
+  typeIncomeBtn: document.getElementById("type-income"),
+  entryTypeInput: document.getElementById("entry-type"),
 
   // Budgets & Goals
   setBudgetBtn: document.getElementById("set-budget-btn"),
@@ -129,45 +154,92 @@ const el = {
 
   modalReceipt: document.getElementById("modal-receipt"),
   receiptImg: document.getElementById("receipt-image-preview"),
+
+  modalPrint: document.getElementById("modal-print"),
+  printDateStart: document.getElementById("print-date-start"),
+  printDateEnd: document.getElementById("print-date-end"),
+  confirmPrintBtn: document.getElementById("confirm-print-btn"),
+  
+  cloudLoader: document.getElementById("cloud-loader"),
 };
 
 // Initialize Application
-function init() {
+// Initialize Application
+async function init() {
   loadTheme();
-  loadGlobalData();
+  showCloudLoader(true);
+  await loadGlobalData();
   populateSelects();
+  populateProfileSelect();
   attachEventListeners();
 
-  switchProfile(STATE.currentProfile, true);
+  await switchProfile(STATE.currentProfile, true);
+  showCloudLoader(false);
 
   // Default form date
   el.expDate.valueAsDate = new Date();
   el.filterYear.value = new Date().getFullYear();
 }
 
-function loadGlobalData() {
+function showCloudLoader(show) {
+  if (show) {
+    el.cloudLoader.classList.remove("hidden");
+  } else {
+    el.cloudLoader.classList.add("hidden");
+  }
+}
+
+async function loadGlobalData() {
+  try {
+    const globalDoc = await getDoc(doc(db, "ExpenseReport", "Globals"));
+    if (globalDoc.exists()) {
+      const data = globalDoc.data();
+      STATE.profiles = data.profiles || ["Vikas"];
+      STATE.currentProfile = data.currentProfile || "Vikas";
+    }
+  } catch (err) {
+    console.error("Cloud Load Error:", err);
+  }
+  
+  // Local fallback
   const profiles = localStorage.getItem("ExpenseReport_Global_Profiles");
-  if (profiles) {
-    STATE.profiles = JSON.parse(profiles);
-  }
+  if (profiles) STATE.profiles = JSON.parse(profiles);
   const current = localStorage.getItem("ExpenseReport_Global_CurrentProfile");
-  if (current && STATE.profiles.includes(current)) {
-    STATE.currentProfile = current;
+  if (current && STATE.profiles.includes(current)) STATE.currentProfile = current;
+}
+
+async function saveGlobalData() {
+  localStorage.setItem("ExpenseReport_Global_Profiles", JSON.stringify(STATE.profiles));
+  localStorage.setItem("ExpenseReport_Global_CurrentProfile", STATE.currentProfile);
+
+  try {
+    await setDoc(doc(db, "ExpenseReport", "Globals"), {
+      profiles: STATE.profiles,
+      currentProfile: STATE.currentProfile
+    });
+  } catch (err) {
+    console.error("Cloud Save Error:", err);
   }
 }
 
-function saveGlobalData() {
-  localStorage.setItem(
-    "ExpenseReport_Global_Profiles",
-    JSON.stringify(STATE.profiles),
-  );
-  localStorage.setItem(
-    "ExpenseReport_Global_CurrentProfile",
-    STATE.currentProfile,
-  );
-}
+async function loadProfileData(profileName) {
+  try {
+    const profileDoc = await getDoc(doc(db, "Profiles", profileName));
+    if (profileDoc.exists()) {
+      const data = profileDoc.data();
+      STATE.expenses = data.expenses || [];
+      STATE.budgets = data.budgets || {};
+      STATE.goalTarget = data.goalTarget || 0;
+      STATE.monthlyIncome = data.monthlyIncome || 0;
+      checkRecurring();
+      updateUI();
+      return;
+    }
+  } catch (err) {
+    console.error("Profile Cloud Load Error:", err);
+  }
 
-function loadProfileData(profileName) {
+  // Local fallback
   const data = localStorage.getItem(STORAGE_PREFIX + profileName);
   if (data) {
     const parsed = JSON.parse(data);
@@ -185,41 +257,77 @@ function loadProfileData(profileName) {
   updateUI();
 }
 
-function saveProfileData() {
+async function saveProfileData() {
   const data = {
     expenses: STATE.expenses,
     budgets: STATE.budgets,
     goalTarget: STATE.goalTarget,
     monthlyIncome: STATE.monthlyIncome,
+    lastUpdated: new Date().toISOString()
   };
-  localStorage.setItem(
-    STORAGE_PREFIX + STATE.currentProfile,
-    JSON.stringify(data),
-  );
+  
+  localStorage.setItem(STORAGE_PREFIX + STATE.currentProfile, JSON.stringify(data));
   updateUI();
+
+  try {
+    // Optional: show a small non-blocking sync indicator instead of full block
+    // or just let it happen in background. Let's do background for saves.
+    await setDoc(doc(db, "Profiles", STATE.currentProfile), data);
+  } catch (err) {
+    console.error("Profile Cloud Save Error:", err);
+  }
 }
 
-function switchProfile(profileName, initial = false) {
+async function switchProfile(profileName, initial = false) {
   STATE.currentProfile = profileName;
-  saveGlobalData();
+  await saveGlobalData();
   populateProfileSelect();
-  loadProfileData(profileName);
-  if (!initial) showToast(`Switched to profile: ${profileName}`, "success");
+  
+  if (!initial) showCloudLoader(true);
+  await loadProfileData(profileName);
+  if (!initial) {
+    showCloudLoader(false);
+    showToast(`Switched to profile: ${profileName}`, "success");
+  }
+}
+
+// Transaction Type Helper
+function setTransactionType(type) {
+  el.entryTypeInput.value = type;
+  if (type === "Income") {
+    el.typeIncomeBtn.classList.add("active");
+    el.typeExpenseBtn.classList.remove("active");
+  } else {
+    el.typeExpenseBtn.classList.add("active");
+    el.typeIncomeBtn.classList.remove("active");
+  }
+  populateSelects();
 }
 
 // Populate Dropdowns
 function populateSelects() {
+  const type = el.entryTypeInput.value;
+  const cats = type === "Income" ? INCOME_CATEGORIES : CATEGORIES;
+
   // Categories
   el.expCategory.innerHTML = '<option value="">Select Category</option>';
+  // Filter category should show both potentially, but for now we follow main categories
   el.filterCategory.innerHTML = '<option value="">All Categories</option>';
-  Object.keys(CATEGORIES).forEach((cat) => {
+  
+  Object.keys(cats).forEach((cat) => {
     el.expCategory.innerHTML += `<option value="${cat}">${cat}</option>`;
+  });
+  
+  // Always show all Expense categories in filter for simplicity
+  Object.keys(CATEGORIES).forEach(cat => {
     el.filterCategory.innerHTML += `<option value="${cat}">${cat}</option>`;
   });
-
-  // Subcategories handled dynamically
-
-  // Months
+  // Add Income label to filter if desired
+  el.filterCategory.innerHTML += '<optgroup label="Income Paths">';
+  Object.keys(INCOME_CATEGORIES).forEach(cat => {
+    el.filterCategory.innerHTML += `<option value="${cat}">${cat}</option>`;
+  });
+  el.filterCategory.innerHTML += '</optgroup>';
   const months = [
     "January",
     "February",
@@ -280,6 +388,47 @@ function attachEventListeners() {
   // Theme & Share
   el.themeToggle.addEventListener("click", toggleTheme);
   el.shareBtn.addEventListener("click", handleShare);
+  el.printReportBtn.addEventListener("click", openPrintModal);
+  el.confirmPrintBtn.addEventListener("click", () => {
+    printReport(el.printDateStart.value, el.printDateEnd.value);
+  });
+
+  // Quick range buttons inside the print modal
+  document.querySelectorAll(".quick-range-btns [data-range]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = now.getMonth();
+      let start = "", end = "";
+
+      if (btn.dataset.range === "this-month") {
+        start = `${y}-${String(m + 1).padStart(2, "0")}-01`;
+        end   = new Date(y, m + 1, 0).toISOString().split("T")[0];
+      } else if (btn.dataset.range === "last-month") {
+        const lm = m === 0 ? 11 : m - 1;
+        const ly = m === 0 ? y - 1 : y;
+        start = `${ly}-${String(lm + 1).padStart(2, "0")}-01`;
+        end   = new Date(ly, lm + 1, 0).toISOString().split("T")[0];
+      } else if (btn.dataset.range === "last-3-months") {
+        const d3 = new Date(y, m - 2, 1);
+        start = d3.toISOString().split("T")[0];
+        end   = new Date(y, m + 1, 0).toISOString().split("T")[0];
+      } else if (btn.dataset.range === "this-year") {
+        start = `${y}-01-01`;
+        end   = `${y}-12-31`;
+      } else if (btn.dataset.range === "all") {
+        start = "";
+        end   = "";
+      }
+
+      el.printDateStart.value = start;
+      el.printDateEnd.value   = end;
+
+      // Highlight active button
+      document.querySelectorAll(".quick-range-btns [data-range]").forEach(b => b.classList.remove("active-range"));
+      btn.classList.add("active-range");
+    });
+  });
 
   // Import/Export
   el.exportBtn.addEventListener("click", exportCSV);
@@ -290,6 +439,9 @@ function attachEventListeners() {
   el.closeModalBtns.forEach((btn) =>
     btn.addEventListener("click", closeAllModals),
   );
+
+  el.typeExpenseBtn.addEventListener("click", () => setTransactionType("Expense"));
+  el.typeIncomeBtn.addEventListener("click", () => setTransactionType("Income"));
 
   // Budgets & Goals Modals
   el.setBudgetBtn.addEventListener("click", openBudgetsModal);
@@ -365,6 +517,8 @@ async function handleFormSubmit(e) {
     }
   }
 
+  const entryType = el.entryTypeInput.value;
+
   const expenseObj = {
     id,
     name,
@@ -375,6 +529,7 @@ async function handleFormSubmit(e) {
     type,
     recurring,
     notes,
+    entryType, // New field: Expense or Income
     lastAddedDate: date, // for recurring check
   };
 
@@ -394,7 +549,7 @@ async function handleFormSubmit(e) {
     showToast("Expense added.");
   }
 
-  saveProfileData();
+  await saveProfileData();
   cancelEdit(); // resets form
 }
 
@@ -429,10 +584,10 @@ function editExpense(id) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-function deleteExpense(id) {
+async function deleteExpense(id) {
   if (!confirm("Are you sure?")) return;
   STATE.expenses = STATE.expenses.filter((x) => x.id !== id);
-  saveProfileData();
+  await saveProfileData();
   showToast("Expense deleted.", "warning");
 }
 
@@ -512,13 +667,15 @@ function renderList() {
 
   list.forEach((ex) => {
     const item = document.createElement("div");
-    item.className = "expense-item";
+    const isIncome = ex.entryType === "Income";
+    item.className = isIncome ? "expense-item income-item" : "expense-item";
 
     let subcat = ex.subcategory ? ` / ${ex.subcategory}` : "";
-    let typeBadge =
-      ex.type === "Fixed"
-        ? `<span class="exp-cat-badge" style="background:rgba(239, 68, 68, 0.1); color:var(--danger)">Fixed</span>`
-        : "";
+    let typeBadge = isIncome
+      ? `<span class="exp-cat-badge" style="background:rgba(16, 185, 129, 0.1); color:var(--success)">Income</span>`
+      : ex.type === "Fixed"
+      ? `<span class="exp-cat-badge" style="background:rgba(239, 68, 68, 0.1); color:var(--danger)">Fixed</span>`
+      : "";
     let recBadge =
       ex.recurring && ex.recurring !== "None"
         ? `<span class="exp-cat-badge" title="Recurring"><i class="ri-repeat-2-line"></i></span>`
@@ -541,7 +698,7 @@ function renderList() {
                 </span>
             </div>
             <div class="exp-info-right">
-                <span class="exp-amount">₹${ex.amount.toFixed(2)}</span>
+                <span class="exp-amount" style="color:${isIncome ? "var(--success)" : "var(--danger)"}">${isIncome ? "+" : "-"}₹${ex.amount.toFixed(2)}</span>
                 <div class="exp-actions">
                     ${receiptBtn}
                     <button class="icon-btn" onclick="editExpense('${ex.id}')"><i class="ri-pencil-line"></i></button>
@@ -559,14 +716,14 @@ function updateDashboard() {
   const curMonthStr = String(now.getMonth() + 1).padStart(2, "0");
 
   let monthTotal = 0;
+  let actualIncomeTotal = 0;
   let yearTotal = 0;
   let fixedTotal = 0;
   let varTotal = 0;
   let highest = null;
   let lowest = null;
 
-  // For daily average, calculate days so far in month
-  const daysInMonth = now.getDate(); // e.g. if today is 15th, divid by 15
+  const daysInMonth = now.getDate();
   const monthsElapsed = now.getMonth() + 1;
 
   STATE.expenses.forEach((ex) => {
@@ -574,7 +731,14 @@ function updateDashboard() {
     const isCurMonth = y === curYearStr && m === curMonthStr;
     const isCurYear = y === curYearStr;
     const amt = ex.amount;
+    const isIncome = ex.entryType === "Income";
 
+    if (isIncome) {
+      if (isCurMonth) actualIncomeTotal += amt;
+      return; // Stop here for income
+    }
+
+    // Expenses logic
     if (isCurYear) yearTotal += amt;
 
     if (isCurMonth) {
@@ -591,6 +755,7 @@ function updateDashboard() {
   el.statYear.innerText = `₹${yearTotal.toFixed(2)}`;
   el.statFixed.innerText = `₹${fixedTotal.toFixed(2)}`;
   el.statVariable.innerText = `₹${varTotal.toFixed(2)}`;
+  el.statActualIncome.innerText = `₹${actualIncomeTotal.toFixed(2)}`;
 
   const avgDaily = monthTotal / Math.max(1, daysInMonth);
   const avgMonthly = yearTotal / Math.max(1, monthsElapsed);
@@ -603,8 +768,12 @@ function updateDashboard() {
   el.statLowest.title = lowest ? lowest.name : "";
 
   el.statMonthlyIncome.innerText = `₹${(STATE.monthlyIncome || 0).toFixed(2)}`;
-  if (STATE.monthlyIncome > 0) {
-    const ratio = (monthTotal / STATE.monthlyIncome) * 100;
+  
+  // Use Actual Income if available, else fallback to Budgeted Monthly Income
+  const totalIncomeAvailable = actualIncomeTotal > 0 ? actualIncomeTotal : STATE.monthlyIncome;
+
+  if (totalIncomeAvailable > 0) {
+    const ratio = (monthTotal / totalIncomeAvailable) * 100;
     el.statIncExpRatio.innerText = `${ratio.toFixed(1)}%`;
     if (ratio >= 100) el.statIncExpRatio.style.color = "var(--danger)";
     else if (ratio > 80) el.statIncExpRatio.style.color = "var(--warning)";
@@ -639,7 +808,7 @@ function renderCharts() {
 
   STATE.expenses.forEach((ex) => {
     const [y, m] = ex.date.split("-");
-    if (y === curYearStr && m === curMonthStr) {
+    if (y === curYearStr && m === curMonthStr && ex.entryType !== "Income") {
       if (catSums[ex.category] !== undefined) catSums[ex.category] += ex.amount;
       else catSums[ex.category] = ex.amount;
     }
@@ -684,44 +853,66 @@ function renderCharts() {
     },
   });
 
-  // Line Chart (Current Year Monthly Trend)
-  let monthSums = Array(12).fill(0);
+  // Data for Year Charts
+  let monthExpSums = Array(12).fill(0);
+  let monthIncSums = Array(12).fill(0);
+  let monthInvestSums = Array(12).fill(0);
+
   STATE.expenses.forEach((ex) => {
     const [y, m] = ex.date.split("-");
     if (y === curYearStr) {
-      monthSums[parseInt(m) - 1] += ex.amount;
+      const idx = parseInt(m) - 1;
+      const amt = ex.amount;
+      if (ex.entryType === "Income") {
+        monthIncSums[idx] += amt;
+      } else {
+        monthExpSums[idx] += amt;
+        if (ex.category === "Investment") {
+          monthInvestSums[idx] += amt;
+        }
+      }
     }
   });
 
+  // If no income recorded for a month but monthlyIncome is set, fallback to it for comparison
+  for (let i = 0; i < 12; i++) {
+    if (monthIncSums[i] === 0) monthIncSums[i] = STATE.monthlyIncome || 0;
+  }
+
+  // Monthly Trend Chart (Highlighting red if Exp > Inc)
   if (lineChartInstance) lineChartInstance.destroy();
   const lineCtx = document.getElementById("lineChart").getContext("2d");
+  
+  // Create conditional point colors
+  const pointBgColors = monthExpSums.map((exp, i) => (exp > monthIncSums[i] ? "#ef4444" : "#4f46e5"));
+  const pointRadius = monthExpSums.map((exp, i) => (exp > monthIncSums[i] ? 6 : 4));
+
   lineChartInstance = new Chart(lineCtx, {
     type: "line",
     data: {
-      labels: [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-      ],
+      labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
       datasets: [
         {
-          label: "Monthly Expenses",
-          data: monthSums,
+          label: "Expenses",
+          data: monthExpSums,
           borderColor: "#4f46e5",
           backgroundColor: "rgba(79, 70, 229, 0.1)",
+          pointBackgroundColor: pointBgColors,
+          pointBorderColor: pointBgColors,
+          pointRadius: pointRadius,
           borderWidth: 2,
           fill: true,
           tension: 0.3,
         },
+        {
+          label: "Income",
+          data: monthIncSums,
+          borderColor: "#10b981",
+          borderDash: [5, 5],
+          borderWidth: 1,
+          pointRadius: 0,
+          fill: false,
+        }
       ],
     },
     options: {
@@ -739,9 +930,55 @@ function renderCharts() {
         },
       },
       plugins: {
-        legend: { display: false },
+        legend: { labels: { color: getVariableColor("--text-primary") } },
       },
     },
+  });
+
+  // Investment vs Regular Expense Chart
+  if (investChartInstance) investChartInstance.destroy();
+  const investCtx = document.getElementById("investChart").getContext("2d");
+  const monthRegularExpSums = monthExpSums.map((tot, i) => tot - monthInvestSums[i]);
+
+  investChartInstance = new Chart(investCtx, {
+    type: "bar",
+    data: {
+      labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+      datasets: [
+        {
+          label: "Investments",
+          data: monthInvestSums,
+          backgroundColor: "#10b981",
+          borderRadius: 4,
+        },
+        {
+          label: "Regular Expenses",
+          data: monthRegularExpSums,
+          backgroundColor: "#4f46e5",
+          borderRadius: 4,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          ticks: { color: getVariableColor("--text-secondary") },
+          grid: { color: getVariableColor("--border-color") },
+        },
+        x: {
+          stacked: true,
+          ticks: { color: getVariableColor("--text-secondary") },
+          grid: { color: getVariableColor("--border-color", "transparent") },
+        }
+      },
+      plugins: {
+        legend: { labels: { color: getVariableColor("--text-primary") } }
+      }
+    }
   });
 }
 
@@ -852,7 +1089,7 @@ function openBudgetsModal() {
   openModal(el.modalBudget);
 }
 
-function saveBudgets() {
+async function saveBudgets() {
   const inputs = el.budgetInputsContainer.querySelectorAll("input");
   inputs.forEach((inp) => {
     const cat = inp.getAttribute("data-cat");
@@ -860,7 +1097,7 @@ function saveBudgets() {
     if (!isNaN(val) && val > 0) STATE.budgets[cat] = val;
     else delete STATE.budgets[cat];
   });
-  saveProfileData();
+  await saveProfileData();
   closeAllModals();
   showToast("Budgets saved.");
 }
@@ -870,10 +1107,10 @@ function openGoalModal() {
   openModal(el.modalGoal);
 }
 
-function saveGoal() {
+async function saveGoal() {
   const val = parseFloat(el.goalTargetInput.value);
   STATE.goalTarget = !isNaN(val) ? val : 0;
-  saveProfileData();
+  await saveProfileData();
   closeAllModals();
   showToast("Financial goal saved.");
 }
@@ -883,10 +1120,10 @@ function openIncomeModal() {
   openModal(el.modalIncome);
 }
 
-function saveIncome() {
+async function saveIncome() {
   const val = parseFloat(el.incomeInput.value);
   STATE.monthlyIncome = !isNaN(val) ? val : 0;
-  saveProfileData();
+  await saveProfileData();
   closeAllModals();
   showToast("Monthly income saved.");
 }
@@ -935,7 +1172,7 @@ function checkRecurring() {
 
   if (newExpensesAdded) {
     showToast("Auto-added recurring expenses.", "success");
-    saveProfileData(); // This persists the changes
+    saveProfileData(); // Background save
   }
 }
 
@@ -1050,7 +1287,7 @@ function importCSV(e) {
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = function (evt) {
+  reader.onload = async function (evt) {
     const text = evt.target.result;
     const lines = text.split("\n").filter((l) => l.trim().length > 0);
     if (lines.length < 2) return; // Only header or empty
@@ -1084,7 +1321,7 @@ function importCSV(e) {
       }
     }
     if (added > 0) {
-      saveProfileData();
+      await saveProfileData();
       showToast(`Imported ${added} expenses.`);
     }
   };
@@ -1093,12 +1330,12 @@ function importCSV(e) {
 }
 
 // Global Actions & Utilities
-function handleAddProfile() {
+async function handleAddProfile() {
   const name = el.newProfileName.value.trim();
   if (name && !STATE.profiles.includes(name)) {
     STATE.profiles.push(name);
     closeAllModals();
-    switchProfile(name);
+    await switchProfile(name);
   } else {
     showToast("Invalid or duplicate name.", "warning");
   }
@@ -1178,5 +1415,117 @@ function getBase64(file) {
   });
 }
 
+// Print Monthly Report
+function openPrintModal() {
+  // Default to current month
+  const now = new Date();
+  const y   = now.getFullYear();
+  const m   = now.getMonth();
+  el.printDateStart.value = `${y}-${String(m + 1).padStart(2, "0")}-01`;
+  el.printDateEnd.value   = new Date(y, m + 1, 0).toISOString().split("T")[0];
+  // Reset active highlight
+  document.querySelectorAll(".quick-range-btns [data-range]").forEach(b => b.classList.remove("active-range"));
+  const thisMonthBtn = document.querySelector('.quick-range-btns [data-range="this-month"]');
+  if (thisMonthBtn) thisMonthBtn.classList.add("active-range");
+  openModal(el.modalPrint);
+}
+
+function printReport(startDate, endDate) {
+  const now = new Date();
+
+  // Build the filtered set
+  let filtered = [...STATE.expenses];
+  if (startDate) filtered = filtered.filter(ex => ex.date >= startDate);
+  if (endDate)   filtered = filtered.filter(ex => ex.date <= endDate);
+  filtered.sort((a, b) => a.date.localeCompare(b.date));
+
+  // Build a human-readable range label
+  let rangeLabel;
+  if (startDate && endDate) {
+    rangeLabel = `${startDate} to ${endDate}`;
+  } else if (startDate) {
+    rangeLabel = `From ${startDate}`;
+  } else if (endDate) {
+    rangeLabel = `Up to ${endDate}`;
+  } else {
+    rangeLabel = "All Time";
+  }
+
+  // Compute summary
+  const totalExp = filtered.reduce((s, x) => s + x.amount, 0);
+  const fixedExp = filtered.filter(x => x.type === "Fixed").reduce((s, x) => s + x.amount, 0);
+  const varExp   = totalExp - fixedExp;
+  const income   = STATE.monthlyIncome || 0;
+
+  // Days in range for avg calc
+  let days = 1;
+  if (startDate && endDate) {
+    const ms = new Date(endDate) - new Date(startDate);
+    days = Math.max(1, Math.round(ms / 86400000) + 1);
+  } else {
+    days = Math.max(1, now.getDate());
+  }
+  const avgDaily = totalExp / days;
+
+  // How many months spanned? For income ratio, multiply monthly income by months
+  let months = 1;
+  if (startDate && endDate) {
+    const s = new Date(startDate), e = new Date(endDate);
+    months = Math.max(1, Math.round((e - s) / (30.44 * 86400000)));
+  }
+  const totalIncome = income * months;
+  const ratio = totalIncome > 0 ? ((totalExp / totalIncome) * 100).toFixed(1) + "%" : "-";
+
+  // Populate header
+  document.getElementById("print-month-title").textContent = "Report: " + rangeLabel;
+  document.getElementById("print-profile-label").textContent = "Profile: " + STATE.currentProfile;
+  document.getElementById("pr-income").textContent    = "\u20b9" + totalIncome.toFixed(2) + (months > 1 ? " (" + months + " mo.)" : "");
+  document.getElementById("pr-expenses").textContent  = "\u20b9" + totalExp.toFixed(2);
+  document.getElementById("pr-ratio").textContent     = ratio;
+  document.getElementById("pr-fixed").textContent     = "\u20b9" + fixedExp.toFixed(2);
+  document.getElementById("pr-variable").textContent  = "\u20b9" + varExp.toFixed(2);
+  document.getElementById("pr-avg-daily").textContent = "\u20b9" + avgDaily.toFixed(2);
+  document.getElementById("pr-gen-date").textContent  = now.toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+  // Category breakdown table
+  const catSums = {};
+  filtered.forEach(ex => {
+    catSums[ex.category] = (catSums[ex.category] || 0) + ex.amount;
+  });
+  const catTbody = document.querySelector("#pr-category-table tbody");
+  catTbody.innerHTML = "";
+  if (Object.keys(catSums).length === 0) {
+    catTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;">No expenses in this range.</td></tr>';
+  } else {
+    Object.entries(catSums)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([cat, amt]) => {
+        const pct    = totalExp > 0 ? ((amt / totalExp) * 100).toFixed(1) + "%" : "0%";
+        const budget = STATE.budgets[cat] || 0;
+        const rem    = budget > 0 ? budget - amt : null;
+        const remCell = rem !== null
+          ? '<span class="' + (rem < 0 ? 'overspent' : '') + '">' + '\u20b9' + Math.abs(rem).toFixed(0) + (rem < 0 ? ' over' : ' left') + '</span>'
+          : "-";
+        catTbody.innerHTML += '<tr><td>' + cat + '</td><td>\u20b9' + amt.toFixed(2) + '</td><td>' + pct + '</td><td>' + (budget > 0 ? '\u20b9' + budget.toFixed(0) : "-") + '</td><td>' + remCell + '</td></tr>';
+      });
+  }
+
+  // Expenses table
+  const expTbody = document.querySelector("#pr-expenses-table tbody");
+  expTbody.innerHTML = "";
+  if (filtered.length === 0) {
+    expTbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;">No expenses in this range.</td></tr>';
+  } else {
+    filtered.forEach(ex => {
+      expTbody.innerHTML += '<tr><td>' + ex.date + '</td><td>' + ex.name + '</td><td>' + ex.category + '</td><td>' + (ex.subcategory || "-") + '</td><td>' + ex.type + '</td><td>\u20b9' + ex.amount.toFixed(2) + '</td><td>' + (ex.notes || "-") + '</td></tr>';
+    });
+    expTbody.innerHTML += '<tr style="font-weight:700;border-top:2px solid #4f46e5;"><td colspan="5">TOTAL</td><td>\u20b9' + totalExp.toFixed(2) + '</td><td></td></tr>';
+  }
+
+  // Close modal then print
+  closeAllModals();
+  setTimeout(() => window.print(), 100);
+}
+
 // Run
-document.addEventListener("DOMContentLoaded", init);
+init();
