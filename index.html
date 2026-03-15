@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ExpenseReport</title>
+    <meta name="description" content="A simple yet powerful expense tracker application.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="light">
+    <!-- Notifications Container -->
+    <div id="toast-container"></div>
+
+    <header>
+        <div class="header-left">
+            <div class="logo">
+                <i class="ri-wallet-3-fill"></i>
+                <h1>ExpenseReport</h1>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="profile-selector">
+                <i class="ri-user-smile-line"></i>
+                <select id="profile-select" title="Switch Profile"></select>
+                <button id="add-profile-btn" class="icon-btn" title="Add Profile"><i class="ri-user-add-line"></i></button>
+            </div>
+            <button id="theme-toggle" class="icon-btn theme-btn" title="Toggle Theme"><i class="ri-moon-line"></i></button>
+            <button id="share-btn" class="icon-btn" title="Share Data"><i class="ri-share-line"></i></button>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Top row: Dashboard Stats -->
+        <section class="dashboard">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <p class="stat-title">Current Month</p>
+                    <h3 id="stat-month-total">₹0.00</h3>
+                </div>
+                <div class="stat-card">
+                    <p class="stat-title">Current Year</p>
+                    <h3 id="stat-year-total">₹0.00</h3>
+                </div>
+                <div class="stat-card">
+                    <p class="stat-title">Avg Daily (Month)</p>
+                    <h3 id="stat-avg-daily">₹0.00</h3>
+                </div>
+                <div class="stat-card">
+                    <p class="stat-title">Avg Monthly (Year)</p>
+                    <h3 id="stat-avg-monthly">₹0.00</h3>
+                </div>
+                <div class="stat-card">
+                    <p class="stat-title">Highest (Month)</p>
+                    <h3 id="stat-highest">-</h3>
+                </div>
+                <div class="stat-card">
+                    <p class="stat-title">Lowest (Month)</p>
+                    <h3 id="stat-lowest">-</h3>
+                </div>
+                <div class="stat-card">
+                    <p class="stat-title">Fixed Expenses</p>
+                    <h3 id="stat-fixed">₹0.00</h3>
+                </div>
+                <div class="stat-card">
+                    <p class="stat-title">Variable Expenses</p>
+                    <h3 id="stat-variable">₹0.00</h3>
+                </div>
+                <div class="stat-card">
+                    <p class="stat-title">Monthly Income</p>
+                    <h3 id="stat-monthly-income">₹0.00</h3>
+                </div>
+                <div class="stat-card">
+                    <p class="stat-title">Exp/Inc Ratio</p>
+                    <h3 id="stat-inc-exp-ratio">-</h3>
+                </div>
+            </div>
+        </section>
+
+        <!-- Charts Row -->
+        <section class="charts-section">
+            <div class="card chart-wrapper">
+                <h3>Category Distribution (Month)</h3>
+                <div class="canvas-container">
+                    <canvas id="pieChart"></canvas>
+                </div>
+            </div>
+            <div class="card chart-wrapper">
+                <h3>Monthly Trend (Year)</h3>
+                <div class="canvas-container">
+                    <canvas id="lineChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Goals and Budgets Row -->
+        <section class="planning-section grid-2-col">
+            <div class="card planning-card">
+                <div class="card-header">
+                    <h3>Budgets</h3>
+                    <button id="set-budget-btn" class="btn-sm outline">Set Budgets</button>
+                </div>
+                <div id="budgets-list" class="planning-list">
+                    <!-- Dynamic budgeting details map -->
+                    <p class="empty-state">No budgets set.</p>
+                </div>
+            </div>
+            <div class="card planning-card">
+                <div class="card-header">
+                    <h3>Financial Goals</h3>
+                    <div>
+                        <button id="set-income-btn" class="btn-sm outline">Set Income</button>
+                        <button id="set-goal-btn" class="btn-sm outline">Manage Goal</button>
+                    </div>
+                </div>
+                <div id="goals-list" class="planning-list">
+                    <div class="goal-item" id="goal-display" style="display:none;">
+                        <div class="goal-info">
+                            <span class="goal-name">Annual Spending Limit</span>
+                            <span class="goal-values"><span id="goal-current-val">₹0</span> / <span id="goal-target-val">₹0</span></span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="goal-progress-fill"></div>
+                        </div>
+                        <p id="goal-status-text" class="goal-status"></p>
+                    </div>
+                    <p class="empty-state" id="goal-empty">No annual spending goal set.</p>
+                </div>
+            </div>
+        </section>
+
+        <div class="main-content">
+            <!-- Left col: Form -->
+            <section class="form-section card">
+                <div class="card-header">
+                    <h2 id="form-title">Add Expense</h2>
+                    <button id="cancel-edit" class="btn-sm danger hidden">Cancel Edit</button>
+                </div>
+                <form id="expense-form">
+                    <input type="hidden" id="edit-id">
+                    
+                    <div class="form-group">
+                        <label for="exp-name">Expense Name <span class="req">*</span></label>
+                        <input type="text" id="exp-name" placeholder="e.g. Lunch with team" required>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label for="exp-amount">Amount <span class="req">*</span></label>
+                            <input type="number" step="0.01" id="exp-amount" placeholder="0.00" required>
+                        </div>
+                        <div class="form-group half">
+                            <label for="exp-date">Date <span class="req">*</span></label>
+                            <input type="date" id="exp-date" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label for="exp-category">Category <span class="req">*</span></label>
+                            <select id="exp-category" required>
+                                <option value="">Select Category</option>
+                            </select>
+                        </div>
+                        <div class="form-group half">
+                            <label for="exp-subcategory">Subcategory</label>
+                            <select id="exp-subcategory" disabled>
+                                <option value="">Select Subcategory</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label for="exp-type">Type <span class="req">*</span></label>
+                            <select id="exp-type" required>
+                                <option value="Variable">Variable</option>
+                                <option value="Fixed">Fixed</option>
+                            </select>
+                        </div>
+                        <div class="form-group half">
+                            <label for="exp-recurring">Recurring</label>
+                            <select id="exp-recurring">
+                                <option value="None">None</option>
+                                <option value="Daily">Daily</option>
+                                <option value="Weekly">Weekly</option>
+                                <option value="Monthly">Monthly</option>
+                                <option value="Yearly">Yearly</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="exp-notes">Notes / Comments</label>
+                        <textarea id="exp-notes" rows="2" placeholder="Any additional context..."></textarea>
+                    </div>
+
+                    <div class="form-group file-input-group">
+                        <label for="exp-receipt">Attach Receipt (Image)</label>
+                        <input type="file" id="exp-receipt" accept="image/*">
+                        <small class="hint">Recommended size under 500KB for local storage limits.</small>
+                    </div>
+
+                    <button type="submit" class="btn primary full-width" id="form-submit-btn">Save Expense</button>
+                </form>
+            </section>
+
+            <!-- Right col: List -->
+            <section class="list-section card">
+                <div class="list-controls-block">
+                    <div class="search-sort-row">
+                        <div class="search-box">
+                            <i class="ri-search-line"></i>
+                            <input type="text" id="search-input" placeholder="Search expenses...">
+                        </div>
+                        <div class="display-toggles">
+                            <button id="view-list-btn" class="active" title="List View"><i class="ri-list-check"></i></button>
+                            <button id="view-calendar-btn" title="Calendar View"><i class="ri-calendar-view"></i></button>
+                        </div>
+                    </div>
+                    
+                    <div class="filters-row">
+                        <select id="filter-category"><option value="">All Categories</option></select>
+                        <select id="filter-month"><option value="">All Months</option></select>
+                        <input type="number" id="filter-year" placeholder="Year">
+                        <div class="custom-date-range">
+                            <input type="date" id="filter-start" title="Start Date">
+                            <span>-</span>
+                            <input type="date" id="filter-end" title="End Date">
+                        </div>
+                        <select id="sort-select">
+                            <option value="date-desc">Newest First</option>
+                            <option value="date-asc">Oldest First</option>
+                            <option value="amount-desc">Amount (High to Low)</option>
+                            <option value="amount-asc">Amount (Low to High)</option>
+                            <option value="category">Category</option>
+                        </select>
+                    </div>
+
+                    <div class="bulk-actions">
+                        <button id="export-csv-btn" class="btn-sm primary"><i class="ri-download-line"></i> Export CSV</button>
+                        <label for="import-csv-input" class="btn-sm primary outline fake-btn">
+                            <i class="ri-upload-line"></i> Import CSV
+                            <input type="file" id="import-csv-input" accept=".csv" style="display:none;">
+                        </label>
+                    </div>
+                </div>
+
+                <div class="list-container">
+                    <!-- List View -->
+                    <div id="expenses-list" class="expense-items">
+                        <!-- Items rendered via JS -->
+                    </div>
+
+                    <!-- Calendar View -->
+                    <div id="calendar-view" class="calendar-wrapper hidden">
+                        <div class="cal-controls">
+                            <button id="cal-prev" class="icon-btn"><i class="ri-arrow-left-s-line"></i></button>
+                            <h4 id="cal-month-year">Month Year</h4>
+                            <button id="cal-next" class="icon-btn"><i class="ri-arrow-right-s-line"></i></button>
+                        </div>
+                        <div class="cal-header">
+                            <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+                        </div>
+                        <div id="cal-grid" class="cal-grid">
+                            <!-- Days rendered via JS -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Modals Overlay -->
+    <div id="modal-overlay" class="overlay hidden"></div>
+
+    <!-- Add Profile Modal -->
+    <div id="modal-profile" class="modal hidden">
+        <div class="modal-header">
+            <h3>Add New Profile</h3>
+            <button class="icon-btn close-modal"><i class="ri-close-line"></i></button>
+        </div>
+        <div class="modal-body">
+            <input type="text" id="new-profile-name" class="modal-input" placeholder="e.g. Family, John, Business">
+        </div>
+        <div class="modal-footer">
+            <button class="btn close-modal-btn">Cancel</button>
+            <button id="save-profile-btn" class="btn primary">Save Profile</button>
+        </div>
+    </div>
+
+    <!-- Budgets Modal -->
+    <div id="modal-budget" class="modal hidden">
+        <div class="modal-header">
+            <h3>Set Category Budgets (Monthly)</h3>
+            <button class="icon-btn close-modal"><i class="ri-close-line"></i></button>
+        </div>
+        <div class="modal-body" id="budget-inputs-container">
+            <!-- Inputs generated by JS -->
+        </div>
+        <div class="modal-footer">
+            <button class="btn close-modal-btn">Cancel</button>
+            <button id="save-budgets-btn" class="btn primary">Save Budgets</button>
+        </div>
+    </div>
+
+    <!-- Goals Modal -->
+    <div id="modal-goal" class="modal hidden">
+        <div class="modal-header">
+            <h3>Set Annual Spending Limit</h3>
+            <button class="icon-btn close-modal"><i class="ri-close-line"></i></button>
+        </div>
+        <div class="modal-body">
+            <p class="hint">Set a maximum amount you want to spend this year. The app will track your progress based on total expenses.</p>
+            <label>Target Maximum Spending</label>
+            <input type="number" id="goal-target-input" class="modal-input" placeholder="e.g. 50000">
+        </div>
+        <div class="modal-footer">
+            <button class="btn close-modal-btn">Cancel</button>
+            <button id="save-goal-btn" class="btn primary">Save Goal</button>
+        </div>
+    </div>
+
+    <!-- Income Modal -->
+    <div id="modal-income" class="modal hidden">
+        <div class="modal-header">
+            <h3>Set Monthly Income</h3>
+            <button class="icon-btn close-modal"><i class="ri-close-line"></i></button>
+        </div>
+        <div class="modal-body">
+            <label>Total Monthly Income</label>
+            <input type="number" id="income-input" class="modal-input" placeholder="e.g. 50000">
+        </div>
+        <div class="modal-footer">
+            <button class="btn close-modal-btn">Cancel</button>
+            <button id="save-income-btn" class="btn primary">Save Income</button>
+        </div>
+    </div>
+
+    <!-- View Receipt Modal -->
+    <div id="modal-receipt" class="modal hidden">
+        <div class="modal-header">
+            <h3>Attached Receipt</h3>
+            <button class="icon-btn close-modal"><i class="ri-close-line"></i></button>
+        </div>
+        <div class="modal-body text-center">
+            <img id="receipt-image-preview" src="" alt="Receipt" style="max-width: 100%; border-radius: 4px;">
+        </div>
+    </div>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- App Logic -->
+    <script src="script.js"></script>
+</body>
+</html>
