@@ -1529,3 +1529,29 @@ function printReport(startDate, endDate) {
 
 // Run
 init();
+
+// Expose functions to window (necessary because script is a module)
+window.editExpense = editExpense;
+window.deleteExpense = deleteExpense;
+window.viewReceipt = viewReceipt;
+window.switchProfile = switchProfile;
+window.handleDeleteProfile = async (name) => {
+  if (!confirm(`Delete profile "${name}"? Data in cloud will remain but local access removed.`)) return;
+  STATE.profiles = STATE.profiles.filter(p => p !== name);
+  if (STATE.currentProfile === name) {
+    await switchProfile(STATE.profiles[0] || "Vikas");
+  } else {
+    await saveGlobalData();
+    populateProfileSelect();
+  }
+};
+window.printReport = printReport;
+window.openPrintModal = openPrintModal;
+window.saveBudgets = saveBudgets;
+window.saveGoal = saveGoal;
+window.saveIncome = saveIncome;
+window.importCSV = importCSV;
+window.handleShare = () => {
+  const url = window.location.href;
+  navigator.clipboard.writeText(url).then(() => showToast("App link copied to clipboard!"));
+};
